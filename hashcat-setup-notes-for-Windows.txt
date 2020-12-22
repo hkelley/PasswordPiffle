@@ -1,0 +1,122 @@
+1)  Installed w_opencl_runtime_p_2021.1.1.191.exe
+
+2)  Ran hashcat.exe -I
+
+hashcat (v6.1.1) starting...
+
+* Device #1: Unstable OpenCL driver detected!
+
+OpenCL Info:
+============
+
+OpenCL Platform ID #1
+  Vendor..: Intel(R) Corporation
+  Name....: Intel(R) OpenCL HD Graphics
+  Version.: OpenCL 2.1
+
+  Backend Device ID #1
+    Type...........: GPU
+    Vendor.ID......: 8
+    Vendor.........: Intel(R) Corporation
+    Name...........: Intel(R) HD Graphics 520
+    Version........: OpenCL 2.1 NEO
+    Processor(s)...: 24
+    Clock..........: 1050
+    Memory.Total...: 6495 MB (limited to 3247 MB allocatable in one block)
+    Memory.Free....: 6431 MB
+    OpenCL.Version.: OpenCL C 2.0
+    Driver.Version.: 26.20.100.7812
+
+OpenCL Platform ID #2
+  Vendor..: Intel(R) Corporation
+  Name....: Intel(R) OpenCL
+  Version.: OpenCL 2.1 WINDOWS
+
+  Backend Device ID #2
+    Type...........: CPU
+    Vendor.ID......: 8
+    Vendor.........: Intel(R) Corporation
+    Name...........: Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz
+    Version........: OpenCL 2.1 (Build 0)
+    Processor(s)...: 4
+    Clock..........: 2600
+    Memory.Total...: 16239 MB (limited to 4059 MB allocatable in one block)
+    Memory.Free....: 16175 MB
+    OpenCL.Version.: OpenCL C 2.0
+    Driver.Version.: 2020.11.11.0.13_160000
+
+
+
+2)  Ran test against "password".   Note that the device type of 1 (CPU) is used to skip over the GPU
+
+  hashcat.exe -m 1000 -D 1  8846f7eaee8fb117ad06bdd830b7586c example.dict
+
+hashcat (v6.1.1) starting...
+
+* Device #1: Unstable OpenCL driver detected!
+
+This OpenCL driver has been marked as likely to fail kernel compilation or to produce false negatives.
+You can use --force to override this, but do not report related errors.
+
+OpenCL API (OpenCL 2.1 ) - Platform #1 [Intel(R) Corporation]
+=============================================================
+* Device #1: Intel(R) HD Graphics 520, skipped
+
+OpenCL API (OpenCL 2.1 WINDOWS) - Platform #2 [Intel(R) Corporation]
+====================================================================
+* Device #2: Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz, 16175/16239 MB (4059 MB allocatable), 4MCU
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 27
+
+Hashes: 1 digests; 1 unique digests, 1 unique salts
+Bitmaps: 16 bits, 65536 entries, 0x0000ffff mask, 262144 bytes, 5/13 rotates
+Rules: 1
+
+Applicable optimizers applied:
+* Optimized-Kernel
+* Zero-Byte
+* Precompute-Init
+* Meet-In-The-Middle
+* Early-Skip
+* Not-Salted
+* Not-Iterated
+* Single-Hash
+* Single-Salt
+* Raw-Hash
+
+Watchdog: Hardware monitoring interface not found on your system.
+Watchdog: Temperature abort trigger disabled.
+
+Host memory required for this attack: 65 MB
+
+Dictionary cache built:
+* Filename..: example.dict
+* Passwords.: 128416
+* Bytes.....: 1069601
+* Keyspace..: 128416
+* Runtime...: 0 secs
+
+8846f7eaee8fb117ad06bdd830b7586c:password
+
+Session..........: hashcat
+Status...........: Cracked
+Hash.Name........: NTLM
+Hash.Target......: 8846f7eaee8fb117ad06bdd830b7586c
+Time.Started.....: Mon Dec 21 19:12:53 2020 (1 sec)
+Time.Estimated...: Mon Dec 21 19:12:54 2020 (0 secs)
+Guess.Base.......: File (example.dict)
+Guess.Queue......: 1/1 (100.00%)
+Speed.#2.........:  1188.5 kH/s (1.89ms) @ Accel:1024 Loops:1 Thr:1 Vec:8
+Recovered........: 1/1 (100.00%) Digests
+Progress.........: 102400/128416 (79.74%)
+Rejected.........: 0/102400 (0.00%)
+Restore.Point....: 98304/128416 (76.55%)
+Restore.Sub.#2...: Salt:0 Amplifier:0-1 Iteration:0-1
+Candidates.#2....: p568802 -> psicometria
+
+Started: Mon Dec 21 19:12:44 2020
+Stopped: Mon Dec 21 19:12:54 2020
+
+
+
