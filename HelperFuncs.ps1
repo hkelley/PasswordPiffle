@@ -1,9 +1,9 @@
 ﻿#  Requirements
-# *  DSInternals module,  PSGallery or https://github.com/MichaelGrafnetter/DSInternals
+# *  DSInternals module v4.4.1,  PSGallery or https://github.com/MichaelGrafnetter/DSInternals
 # *  Hashcat installation
 # *  Haveibeenpwned.com  NTLM list
 
-Function Get-ADHashes {
+Function Get-ADHashesAsTestSet {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [ScriptBlock] $Filter
@@ -25,75 +25,48 @@ Function Get-ADHashes {
     $retrievedUsers = @{}
     foreach($u in $users)
     {
-        $retrievedUsers[$u.DistinguishedName] = Get-ADReplAccount -SamAccountName $u.SamAccountName  -Server $rootdse.Properties["dnsHostName"].Value  -Domain $NBName
+        $repl = Get-ADReplAccount -SamAccountName $u.SamAccountName  -Server $rootdse.Properties["dnsHostName"].Value  -Domain $NBName
+
+        $retrievedUsers[$u.samaccountname] = [pscustomobject] @{
+            Replica = $repl
+            Condition = $null
+            Context = $null            
+        }
     }
 
     return $retrievedUsers
 }
 
-Function Group-UsersByHash {
+
+function Test-HashesWithHashcat{
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]  $retrievedUsers  # 
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
+        , [Parameter(Mandatory)] $HashcatDir
     )
 
-    # build a hashtable of objects keyed by password hashes 
-    $retrievedHashes = @{}
 
-    foreach($r in $retrievedUsers.Values )
+    # build a hashtable of username keyed by password hashes 
+    $hashesToTest = @{}
+
+    foreach($v in ($TestSet.Values | ?{$_.Condition -eq $null} ) )
     {
-        $hash = [System.BitConverter]::ToString($r.NTHash).Replace("-","")
+        $hash = [System.BitConverter]::ToString($v.Replica.NTHash).Replace("-","")
     
-        if($retrievedHashes[$hash])
+        if($hashesToTest[$hash])
         {
-            $retrievedHashes[$hash].Users += $r.SamAccountName  # hash already seen - link another username to it
+            # existing hash - add another user to the list of names
+            $hashesToTest[$hash].Users += $v.Replica.SamAccountName  # hash already seen - link another username to it
         }
         else
         {
-            # first time seeing this hash
-            $retrievedHashes[$hash] = [pscustomobject]@{
-                Condition = $null
-                Context = $null
-                Users = @($r.SamAccountName)
+            # first time seeing this hash - add new object
+            $hashesToTest[$hash] = [pscustomobject]@{
+                Users = @($v.replica.SamAccountName)
             }
         }
     }
 
-    return $retrievedHashes
-}
-
-function Test-HashesForPasswordSharing {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] $UserReplicas   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this set.  Don't use this function if you are only analyzing recent password changes
-    )
-    
-    foreach($replicatedUser in $UserReplicas)
-    {
-        $userHash = [System.BitConverter]::ToString($replicatedUser.NTHash).Replace("-","")
-
-        # find the manager of $replicatedUser
-        $aduser =  Get-ADObject -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $replicatedUser.sAMAccountName)
-
-        if($adUser -eq $null -or $replicatedUser.Enabled -ne $true)
-        {    continue      }
-
-        ## check for hash matches (password re-use)
-        if($aduser.Manager -ne $null -and $aduser.manager -ne $replicatedUser.DistinguishedName -and $replicatedUser.NTHash -eq $replicatedUser[$aduser.Manager].NTHash)
-        {
-            [pscustomobject] @{
-                SamAccountName = $replicatedUser.sAMAccountName
-                Hash = $userhash
-                Detection = "shared"
-                Context =  $replicatedUser[$aduser.Manager].SamAccountName
-            }
-        }
-    }
-}
-
-#  Group-UsersByHash
-function Test-HashesWithHashcat($hashesToTest, $hashcatDir)
-{
     $scratchFile = [IO.Path]::Combine( $env:TMP, ("hcu-{0}.txt" -f (Get-Random -Minimum 1000 -Maximum 9999)))
     $outputFile = [IO.Path]::Combine( $env:TMP, ("hcu-{0}.txt" -f (Get-Random -Minimum 1000 -Maximum 9999)))
 
@@ -106,68 +79,91 @@ function Test-HashesWithHashcat($hashesToTest, $hashcatDir)
     .\hashcat.exe  -m 1000 -O --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
 
     # hashcat-ing complete,  import the cracked results
-    $itemCount = 0
     foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
     {
-        $itemCount++
-        $hashesToTest[$crack.hash].Condition = "weak"
-        $hashesToTest[$crack.hash].Context = $crack.result        
+        foreach($user in $hashesToTest[$crack.hash].Users)
+        {
+            $TestSet[$user].Condition = "weak"
+            $TestSet[$user].Context = $crack.result
+        }
     }
     
     Remove-Item -Force $scratchFile
     Remove-Item -Force $outputFile
 
     Pop-Location
-
-    return $itemCount
 }
 
 
-function Test-HashesAgainstList($HashesToTest, $BadHashesFile)
-{
-    $badHashesFileInfo = Get-Item $BadHashesFile
-    # borrowed from https://github.com/DGG-IT/Match-ADHashes/blob/master/Match-ADHashes.ps1
+function Test-HashesAgainstList {
+    [CmdletBinding()]
+    param(
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
+        , [Parameter(Mandatory)] [System.IO.FileInfo] $BadHashesSortedFile  
+    )
 
-    $frHashDictionary = New-Object System.IO.StreamReader($badHashesFileInfo) 
+    # Get only the values we haven't already marked
+    $testSubset = $TestSet.Values | ?{$_.Condition -eq $null} 
+    
+    $testResults = $testSubset.Replica | Test-PasswordQuality -WeakPasswordHashesSortedFile $BadHashesSortedFile.FullName
 
-    #Iterate through the list (of banned hashes) checking each hash against the hashes pulled from users
-    $itemCount = 0
-    while (($lineHashDictionary = $frHashDictionary.ReadLine()) -ne $null) 
+    foreach($failedUser in $testResults.WeakPassword)
     {
-        $data = $lineHashDictionary.Split(":")
-        $badHash = $data[0].ToUpper()
-           
-        $matchedHash = $hashesToTest[$badHash]     
-        if($matchedHash.Users.Count -gt 0 -and $matchedHash.Condition -eq $null)  # ignore previously-classified hashes
+        $TestSet[$failedUser].Condition = "leaked"
+        $TestSet[$failedUser].Context = $BadHashesSortedFile.BaseName
+    }    
+}
+
+
+function Test-HashesForPasswordSharing {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+    )
+    
+    foreach($t in $TestSet)
+    {
+        $userHash = [System.BitConverter]::ToString($t.Replica.NTHash).Replace("-","")
+
+        # find the manager of this user
+        $aduser =  Get-ADObject -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $t.ReplicatedUser.sAMAccountName)
+
+        if($adUser -eq $null -or $replicatedUser.Enabled -ne $true)
+        {    continue      }
+
+        ## check for hash matches (password re-use between user and manager)
+        if($aduser.Manager -ne $null -and $aduser.manager -ne $replicatedUser.DistinguishedName -and $replicatedUser.NTHash -eq $replicatedUser[$aduser.Manager].NTHash)
         {
-            $itemCount++
-            $matchedHash.Condition = "leaked"
-            $matchedHash.Context = $badHashesFileInfo.Name
+            # return this 
+            [pscustomobject] @{
+                SamAccountName = $replicatedUser.sAMAccountName
+                Hash = $userhash
+                Detection = "shared"
+                Context =  $replicatedUser[$aduser.Manager].SamAccountName
+            }
         }
     }
-
-    $frHashDictionary.Close()
-
-    return $itemCount
 }
 
 
-function Get-FlattenHashResults ($TestedHashes)
+function Get-FlattenedResults
 {
-    foreach($hash in $TestedHashes.Keys)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+    )
+
+    foreach($user in $TestSet.Keys)
     {
-        $testResult = $TestedHashes[$hash]
+        $testResult = $TestSet[$user]
 
         if($testResult.Condition -ne $null)
         {
-            foreach($username in $testResult.Users)
-            {
-                [pscustomobject] @{
-                    SamAccountName = $username
-                    Hash = $hash
-                    Detection = $testResult.Condition
-                    Context =  $testResult.Context
-                }
+            [pscustomobject] @{
+                SamAccountName = $user
+                Hash = [System.BitConverter]::ToString($testResult.Replica.NTHash).Replace("-","")
+                Detection = $testResult.Condition
+                Context =  $testResult.Context
             }
         }
     }
