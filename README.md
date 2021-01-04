@@ -1,1 +1,1 @@
-A suite of helper functions to aide and automate AD password review.
+A suite of helper functions to automate AD password review.
