@@ -1,8 +1,15 @@
 ﻿#  Requirements
 # *  DSInternals module v4.4.1,  PSGallery or https://github.com/MichaelGrafnetter/DSInternals
 # *  Hashcat installation
-# *  Haveibeenpwned.com  NTLM list
+# *  Haveibeenpwned.com  sorted-by-NTLM-hash list
 
+# Minimum Permissions to pull password hashes from a DC (online)
+# - The “DS-Replication-Get-Changes” extended right
+#   CN: DS-Replication-Get-Changes
+#   GUID: 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
+# - The “Replicating Directory Changes All” extended right
+#   CN: DS-Replication-Get-Changes-All
+#   GUID: 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
 Function Get-ADHashesAsTestSet {
     [CmdletBinding()]
     param(
@@ -12,7 +19,7 @@ Function Get-ADHashesAsTestSet {
     $rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE",$null,$null,[System.DirectoryServices.AuthenticationTypes]::Anonymous) -ErrorAction Stop
     $NBName = (Get-ADDomain).NetBIOSName
 
-    if(!($users = Get-ADUser -Filter $filter))
+    if(!($users = Get-ADUser -Filter $filter -Properties PasswordLastSet))
     {    
         Write-Warning "No users matched filter"
     }
@@ -30,7 +37,8 @@ Function Get-ADHashesAsTestSet {
         $retrievedUsers[$u.samaccountname] = [pscustomobject] @{
             Replica = $repl
             Condition = $null
-            Context = $null            
+            Context = $null
+            PasswordLastSet = $u.PasswordLastSet
         }
     }
 
@@ -67,8 +75,9 @@ function Test-HashesWithHashcat{
         }
     }
 
-    $scratchFile = [IO.Path]::Combine( $env:TMP, ("hcu-{0}.txt" -f (Get-Random -Minimum 1000 -Maximum 9999)))
-    $outputFile = [IO.Path]::Combine( $env:TMP, ("hcu-{0}.txt" -f (Get-Random -Minimum 1000 -Maximum 9999)))
+    $jobName = "hcu-{0}" -f (Get-Random -Minimum 1000 -Maximum 9999)
+    $scratchFile = [IO.Path]::Combine( $env:TMP, ("{0}-i.txt" -f $jobName))
+    $outputFile = [IO.Path]::Combine( $env:TMP, ("{0}-o.txt" -f  $jobName))
 
     # output hashes for processing by hashcat
     $hashesToTest.Keys | Out-File -Encoding ascii -FilePath $scratchFile
@@ -76,7 +85,7 @@ function Test-HashesWithHashcat{
 
     Push-Location $hashcatDir
 
-    .\hashcat.exe  -m 1000 -O --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
+    .\hashcat.exe  -m 1000 -O --session $jobName --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
 
     # hashcat-ing complete,  import the cracked results
     foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
@@ -150,20 +159,27 @@ function Get-FlattenedResults
 {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+        , [Parameter(Mandatory = $false)] [switch] $ReturnAll
     )
 
     foreach($user in $TestSet.Keys)
     {
         $testResult = $TestSet[$user]
 
-        if($testResult.Condition -ne $null)
+        if($testResult.Condition -ne $null -or $ReturnAll)
         {
+            if($testResult.PasswordLastSet -ne $null)
+            {
+                $PasswordLastSetUTC = $testResult.PasswordLastSet.ToUniversalTime()
+            }
+
             [pscustomobject] @{
                 SamAccountName = $user
                 Hash = [System.BitConverter]::ToString($testResult.Replica.NTHash).Replace("-","")
                 Detection = $testResult.Condition
                 Context =  $testResult.Context
+                PasswordLastSetUTC = $PasswordLastSetUTC
             }
         }
     }
