@@ -10,6 +10,16 @@
 # - The “Replicating Directory Changes All” extended right
 #   CN: DS-Replication-Get-Changes-All
 #   GUID: 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
+
+Function Format-NTHash {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $NTHash
+    )
+
+    return [System.BitConverter]::ToString($NTHash).Replace("-","")
+}
+
 Function Get-ADHashesAsTestSet {
     [CmdletBinding()]
     param(
@@ -59,7 +69,7 @@ function Test-HashesWithHashcat{
 
     foreach($v in ($TestSet.Values | ?{$_.Condition -eq $null} ) )
     {
-        $hash = [System.BitConverter]::ToString($v.Replica.NTHash).Replace("-","")
+        $hash = Format-NTHash -NTHash $v.Replica.NTHash
     
         if($hashesToTest[$hash])
         {
@@ -85,7 +95,7 @@ function Test-HashesWithHashcat{
 
     Push-Location $hashcatDir
 
-    .\hashcat.exe  -m 1000 -O --session $jobName --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
+    $hashcatOutput = .\hashcat.exe  -m 1000 -O --session $jobName --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
 
     # hashcat-ing complete,  import the cracked results
     foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
@@ -124,31 +134,75 @@ function Test-HashesAgainstList {
 }
 
 
+
+function Test-HashesForPasswordReuse {
+    [CmdletBinding()]
+    param(
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
+        , [Parameter(Mandatory = $false)] [int] $Lookback = 5
+        , [Parameter(Mandatory = $false)] [int] $MaxUsage = 4
+    )
+
+    foreach($t in $TestSet.Values)
+    {
+        if($t.Replica.NTHashHistory -eq $null)
+        {
+            break # no password history
+        }
+
+        $userHash =   Format-NTHash -NTHash $t.Replica.NTHash
+
+
+        ## Test for password-re-use across time (same account).  Skip the urrent and most-recent previous password, look for more chronic offenders
+        $reuseCount = 0
+        foreach($i in 2..($Lookback))
+        {
+            if( $t.Replica.NTHashHistory[$i] -eq $null)
+            {
+                break
+            }
+
+            $oldHash = Format-NTHash -NTHash $t.Replica.NTHashHistory[$i]
+            if($oldHash -eq $userHash)
+            {
+                $reuseCount++
+            }
+        }
+
+        if($reuseCount -ge $MaxUsage)
+        {
+                # mark as bad
+                $t.Condition = "re-use"
+                $t.Context =  "{0}:{1}" -f $reuseCount,$Lookback
+        }
+    }
+}
+
 function Test-HashesForPasswordSharing {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
     )
     
-    foreach($t in $TestSet)
+    foreach($t in $TestSet.Values)
     {
-        $userHash = [System.BitConverter]::ToString($t.Replica.NTHash).Replace("-","")
+        $userHash =   Format-NTHash -NTHash $t.Replica.NTHash
 
         # find the manager of this user
-        $aduser =  Get-ADObject -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $t.ReplicatedUser.sAMAccountName)
+        $aduser =  Get-ADUser -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $t.Replica.sAMAccountName)
 
-        if($adUser -eq $null -or $replicatedUser.Enabled -ne $true)
+        if($adUser -eq $null -or $aduser.Enabled -ne $true)
         {    continue      }
 
-        ## check for hash matches (password re-use between user and manager)
-        if($aduser.Manager -ne $null -and $aduser.manager -ne $replicatedUser.DistinguishedName -and $replicatedUser.NTHash -eq $replicatedUser[$aduser.Manager].NTHash)
+        if($aduser.Manager -gt "" -and $aduser.Manager -ne $aduser.DistinguishedName -and ($adManager = Get-ADUser $aduser.Manager -Properties displayName,mail) -and $TestSet.ContainsKey($adManager.SamAccountName))
         {
-            # return this 
-            [pscustomobject] @{
-                SamAccountName = $replicatedUser.sAMAccountName
-                Hash = $userhash
-                Detection = "shared"
-                Context =  $replicatedUser[$aduser.Manager].SamAccountName
+            $managerHash =  Format-NTHash -NTHash $TestSet[$adManager.SamAccountName].Replica.NTHash
+
+            if($userHash -eq $managerHash)
+            {
+                # mark as bad
+                $t.Condition = "shared"
+                $t.Context =  "{0} <{1}>" -f $adManager.displayName,$adManager.mail
             }
         }
     }
