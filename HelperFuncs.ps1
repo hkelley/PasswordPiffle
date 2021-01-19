@@ -61,6 +61,7 @@ function Test-HashesWithHashcat{
     param(
           [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
         , [Parameter(Mandatory)] $HashcatDir
+        , [Parameter(Mandatory)] [switch] $ShowOutput
     )
 
 
@@ -96,6 +97,10 @@ function Test-HashesWithHashcat{
     Push-Location $hashcatDir
 
     $hashcatOutput = .\hashcat.exe  -m 1000 -O --session $jobName --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
+    if($ShowOutput)
+    {
+        $hashcatOutput
+    }
 
     # hashcat-ing complete,  import the cracked results
     foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
