@@ -60,8 +60,8 @@ function Test-HashesWithHashcat{
     [CmdletBinding()]
     param(
           [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
-        , [Parameter(Mandatory)] $HashcatDir
-        , [Parameter(Mandatory)] [switch] $ShowOutput
+        , [Parameter(Mandatory)] [string] $HashcatDir
+        ,                        [switch] $ShowOutput
     )
 
 
