@@ -1,7 +1,8 @@
 ﻿#  Requirements
 # *  DSInternals module v4.4.1,  PSGallery or https://github.com/MichaelGrafnetter/DSInternals
-# *  Hashcat installation
+# *  Hashcat https://hashcat.net/hashcat/
 # *  Haveibeenpwned.com  sorted-by-NTLM-hash list
+# *  Install-Module -Name Posh-SSH   # if using separate hashcat server
 
 # Minimum Permissions to pull password hashes from a DC (online)
 # - The “DS-Replication-Get-Changes” extended right
@@ -23,13 +24,14 @@ Function Format-NTHash {
 Function Get-ADHashesAsTestSet {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [ScriptBlock] $Filter
+          [Parameter(Mandatory)] [ScriptBlock] $Filter
+        , [Parameter(Mandatory)] [string] $DC
     )
 
     $rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE",$null,$null,[System.DirectoryServices.AuthenticationTypes]::Anonymous) -ErrorAction Stop
-    $NBName = (Get-ADDomain).NetBIOSName
+    $NBName = (Get-ADDomain -Server $DC).NetBIOSName
 
-    if(!($users = Get-ADUser -Filter $filter -Properties PasswordLastSet))
+    if(!($users = @(Get-ADUser -Server $DC -Filter $filter -Properties PasswordLastSet)))
     {    
         Write-Warning "No users matched filter"
     }
@@ -42,7 +44,7 @@ Function Get-ADHashesAsTestSet {
     $retrievedUsers = @{}
     foreach($u in $users)
     {
-        $repl = Get-ADReplAccount -SamAccountName $u.SamAccountName  -Server $rootdse.Properties["dnsHostName"].Value  -Domain $NBName
+        $repl = Get-ADReplAccount  -Server $DC  -SamAccountName $u.SamAccountName  -Domain $NBName
 
         $retrievedUsers[$u.samaccountname] = [pscustomobject] @{
             Replica = $repl
@@ -59,15 +61,20 @@ Function Get-ADHashesAsTestSet {
 function Test-HashesWithHashcat{
     [CmdletBinding()]
     param(
-          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
-        , [Parameter(Mandatory)] [string] $HashcatDir
-        ,                        [switch] $ShowOutput
+          [Parameter(Mandatory = $true)] $TestSet   # from Get-ADHashes
+        , [Parameter(Mandatory = $false)] [string] $HashcatHost
+        , [Parameter(Mandatory = $false)] [pscredential] $HashcatHostCred
+        , [Parameter(Mandatory = $true)] [string] $HashcatDir
+        , [Parameter(Mandatory = $true)] [string] $WordList 
+        , [Parameter(Mandatory = $true)] [string] $Rules                        
+        , [Parameter(Mandatory = $false)] [switch] $ShowOutput
+        , [Parameter(Mandatory = $false)] [int] $TimeoutHours = 6
     )
-
 
     # build a hashtable of username keyed by password hashes 
     $hashesToTest = @{}
 
+    # Test anything that hasn't already been confirmed to be weak,  "Condition -eq $null"
     foreach($v in ($TestSet.Values | ?{$_.Condition -eq $null} ) )
     {
         $hash = Format-NTHash -NTHash $v.Replica.NTHash
@@ -87,24 +94,82 @@ function Test-HashesWithHashcat{
     }
 
     $jobName = "hcu-{0}" -f (Get-Random -Minimum 1000 -Maximum 9999)
-    $scratchFile = [IO.Path]::Combine( $env:TMP, ("{0}-i.txt" -f $jobName))
-    $outputFile = [IO.Path]::Combine( $env:TMP, ("{0}-o.txt" -f  $jobName))
+    $scratchFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.input" -f $jobName))
+    $outputFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.output" -f  $jobName))
+    $logFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.log" -f  $jobName))
 
     # output hashes for processing by hashcat
     $hashesToTest.Keys | Out-File -Encoding ascii -FilePath $scratchFile
     $null | Out-File -Encoding ascii -FilePath $outputFile
 
-    Push-Location $hashcatDir
+    $hashcatOutput = "NO HASHCAT OUTPUT"
 
-    $hashcatOutput = .\hashcat.exe  -m 1000 -O --session $jobName --outfile $outputfile $scratchFile wordlists\Top353Million-probable-v2.txt -r rules\best64.rule --potfile-disable
+    $stopwatch =  [system.diagnostics.stopwatch]::StartNew()
+
+    if(![string]::IsNullOrWhiteSpace($HashcatHost) -and $HashcatHostCred -ne $null)
+    {   
+        # remote hashcat (e.g.,  Linux host with GPU)
+
+        $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
+        
+        # Transfer the hashes to crack
+        Set-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $scratchFile.FullName -Destination "~" -NewName $scratchFile.Name
+
+        $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
+
+		# crack hashes and add to potfile
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {1}" -f $HashcatDir,$logFile.Name,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList)    
+        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
+
+		# export results
+        $cmd = "{0}hashcat  -m 1000 --show --outfile {1} {2}  " -f $HashcatDir,$outputFile.Name,$scratchFile.Name,$logFile.Name
+        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
+
+        
+        # Retrieve the results
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -Force
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -Force
+ 
+        # Clean up temp files
+        $result = Invoke-SSHCommand -SSHSession $session -Command ("rm {0}*" -f $jobName)
+        
+        Remove-SSHSession $session | Out-Null
+
+        $hashcatOutput = Get-Content $logFile.FullName
+    }
+    else
+    {
+        # local hashcat   #### NEEDS REVIEW.  MAY BE BROKEN AFTER CHANGES TO ALLOW SSH REMOTING  #####
+
+		# crack hashes and add to potfile
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {1}.log" -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList)    
+
+		# export results
+        $cmd = "{0}hashcat  -m 1000 --show --outfile {1} {2}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name
+
+#        $cmd = "{0}hashcat  -m 1000 -O --session {1}  --potfile-disable --outfile {2} {3} --rules-file {4} {5}" -f $HashcatDir,$jobName,$outputFile.FullName,$scratchFile.FullName,$($HashcatDir + $WordList),$($HashcatDir + $Rules)
+        $cmd = "{0}hashcat  -m 1000 -O --session {1}  --show --outfile {2} {3} --rules-file {4} {5}" -f $HashcatDir,$jobName,$outputFile.FullName,$scratchFile.FullName,$($HashcatDir + $WordList),$($HashcatDir + $Rules)
+        $hashcatOutput = Invoke-Expression -Command $cmd 
+    }
+
+    $stopwatch.Stop()
+
+    Write-Host ("Hashcat processing time: {0:n0} minutes" -f $stopwatch.Elapsed.TotalMinutes)
+
     if($ShowOutput)
     {
-        $hashcatOutput
+        $hashcatOutput | Write-Host
     }
 
     # hashcat-ing complete,  import the cracked results
     foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
     {
+        if(-not $hashesToTest[$crack.hash])
+        {
+            Write-Verbose ("Skipping over unmatched hash (probably from potfile cache): {0}" -f $crack.hash)
+            continue  
+        }
+
         foreach($user in $hashesToTest[$crack.hash].Users)
         {
             $TestSet[$user].Condition = "weak"
@@ -114,8 +179,7 @@ function Test-HashesWithHashcat{
     
     Remove-Item -Force $scratchFile
     Remove-Item -Force $outputFile
-
-    Pop-Location
+    Remove-Item -Force $logFile
 }
 
 
@@ -127,9 +191,10 @@ function Test-HashesAgainstList {
     )
 
     # Get only the values we haven't already marked
-    $testSubset = $TestSet.Values | ?{$_.Condition -eq $null} 
-    
-    $testResults = $testSubset.Replica | Test-PasswordQuality -WeakPasswordHashesSortedFile $BadHashesSortedFile.FullName
+    if($testSubset = $TestSet.Values | ?{$_.Condition -eq $null} )
+    {
+        $testResults = $testSubset.Replica | Test-PasswordQuality -WeakPasswordHashesSortedFile $BadHashesSortedFile.FullName
+    }
 
     foreach($failedUser in $testResults.WeakPassword)
     {
@@ -186,7 +251,8 @@ function Test-HashesForPasswordReuse {
 function Test-HashesForPasswordSharing {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
+        , [Parameter(Mandatory)] $DC
     )
     
     foreach($t in $TestSet.Values)
@@ -194,12 +260,12 @@ function Test-HashesForPasswordSharing {
         $userHash =   Format-NTHash -NTHash $t.Replica.NTHash
 
         # find the manager of this user
-        $aduser =  Get-ADUser -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $t.Replica.sAMAccountName)
+        $aduser =  Get-ADUser -Server $DC -Properties manager -LDAPFilter ("(&(objectCategory=person)(sAMAccountName={0}))" -f $t.Replica.sAMAccountName)
 
         if($adUser -eq $null -or $aduser.Enabled -ne $true)
         {    continue      }
 
-        if($aduser.Manager -gt "" -and $aduser.Manager -ne $aduser.DistinguishedName -and ($adManager = Get-ADUser $aduser.Manager -Properties displayName,mail) -and $TestSet.ContainsKey($adManager.SamAccountName))
+        if($aduser.Manager -gt "" -and $aduser.Manager -ne $aduser.DistinguishedName -and ($adManager = Get-ADUser -Server $DC $aduser.Manager -Properties displayName,mail) -and $TestSet.ContainsKey($adManager.SamAccountName))
         {
             $managerHash =  Format-NTHash -NTHash $TestSet[$adManager.SamAccountName].Replica.NTHash
 

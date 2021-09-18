@@ -1,0 +1,179 @@
+
+# Hashcat setup adapted from:
+https://arminreiter.com/2020/11/using-azure-vm-to-crack-passwords/
+
+https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
+
+# PSremoting steps adapted from:
+https://adamtheautomator.com/psremoting-linux/
+
+lsb_release -a
+
+
+
+Check correct urls at: http://developer.download.nvidia.com/compute/cuda/repos/ for
+- cuda-repo-ubuntu****_amd64.deb
+- keys  (exact URL will be provided by this command:
+        sudo dpkg -i /tmp/${CUDA_REPO_PKG}
+
+http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/cuda-repo-ubuntu1604_10.2.89-1_amd64.deb
+
+
+CUDA_REPO_PKG=cuda-repo-ubuntu1604_10.2.89-1_amd64.deb
+wget -O /tmp/${CUDA_REPO_PKG} http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/${CUDA_REPO_PKG}
+
+
+sudo dpkg -i /tmp/${CUDA_REPO_PKG}
+sudo apt-key adv --fetch-keys http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/7fa2af80.pub
+rm -f /tmp/${CUDA_REPO_PKG}
+sudo apt-get update
+
+sudo apt-get install cuda   # HCK
+
+sudo apt-get install cuda-drivers
+sudo apt-get install nvidia-cuda-toolkit
+sudo apt-get install p7zip-full -y
+
+sudo reboot
+
+nvidia-smi
+
+# Output from nvidia-smi:
+Tue Sep 14 14:32:38 2021
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 465.19.01    Driver Version: 465.19.01    CUDA Version: 11.3     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  NVIDIA Tesla K80    Off  | 00000001:00:00.0 Off |                    0 |
+| N/A   72C    P0    65W / 149W |      0MiB / 11441MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+
+# Install latest version of Hashcat (check https://hashcat.net/hashcat/ to get latest version number)
+
+
+cd /opt
+
+HASHCAT_VER=hashcat-6.2.4
+sudo wget https://hashcat.net/files/${HASHCAT_VER}.7z
+
+
+sudo 7z x ${HASHCAT_VER}.7z
+sudo rm ${HASHCAT_VER}.7z
+
+
+cd ${HASHCAT_VER}
+
+# make a link using short name 
+ln -s hashcat.bin hashcat
+
+# grant write perms so that the .pid, .induct and other temp files can be written without sudo
+sudo chmod -R 757 /opt/hashcat-6.2.4/
+
+
+
+# Chec for GPU recognition
+sudo ./hashcat.bin -I
+
+
+hashcat (v6.2.4) starting in backend information mode
+
+CUDA Info:
+==========
+
+CUDA.Version.: 11.3
+
+Backend Device ID #1
+  Name...........: NVIDIA Tesla K80
+  Processor(s)...: 13
+  Clock..........: 823
+  Memory.Total...: 11441 MB
+  Memory.Free....: 11382 MB
+  PCI.Addr.BDFe..: 0001:00:00.0
+
+OpenCL Info:
+============
+
+OpenCL Platform ID #1
+  Vendor..: NVIDIA Corporation
+  Name....: NVIDIA CUDA
+  Version.: OpenCL 3.0 CUDA 11.3.55
+
+  Backend Device ID #2
+    Type...........: GPU
+    Vendor.ID......: 32
+    Vendor.........: NVIDIA Corporation
+    Name...........: NVIDIA Tesla K80
+    Version........: OpenCL 3.0 CUDA
+    Processor(s)...: 13
+    Clock..........: 823
+    Memory.Total...: 11441 MB (limited to 2860 MB allocatable in one block)
+    Memory.Free....: 11328 MB
+    OpenCL.Version.: OpenCL C 1.2
+    Driver.Version.: 465.19.01
+    PCI.Addr.BDF...: 00:00.0
+
+
+
+
+mkdir wordlists
+cd wordlists
+
+
+sudo wget http://thehackerplaybook.com/get.php?type=THP-password
+sudo 7z x 
+rm get
+
+cd ../rules
+sudo wget https://raw.githubusercontent.com/NotSoSecure/password_cracking_rules/master/OneRuleToRuleThemAll.rule
+
+
+# Finicky syntax
+sudo ./hashcat.bin  -m 1000 -O --outfile x.txt --potfile-disable  -r rules/OneRuleToRuleThemAll.rule hash-to-crack.txt   wordlists/40GB_CleanUpFile.txt
+
+
+
+
+# Remoting setup
+
+# On Windows client
+# Install OpenSSH
+Get-WindowsCapability -Online | Where-Object {$_.Name -like 'OpenSSH.Client*'} | Add-WindowsCapability -Online
+
+- OR - 
+See DISM batch file in this folder
+
+Make sure ssh.exe is in your path.
+c:\Windows\System32\OpenSSH\ssh.exe
+
+
+# on Ubuntu server (using direct download method)
+https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-core-on-linux?view=powershell-7.1#installation-via-direct-download---ubuntu-1604
+
+sudo wget https://github.com/PowerShell/PowerShell/releases/download/v7.1.4/powershell_7.1.4-1.ubuntu.16.04_amd64.deb
+
+sudo dpkg -i powershell_7.1.4-1.ubuntu.16.04_amd64.deb
+# Ignore dependency errors from above ^^.  Next command resolves
+sudo apt-get install -f
+
+# Add the following (commented)  line to the sshd config (near SFTP line)
+# Subsystem powershell /usr/bin/pwsh -sshs -NoLogo
+sudo vi /etc/ssh/sshd_config
+
+
+sudo systemctl restart sshd.
+
+
+# Test from client
+$SessionParams = @{SSHTransport = $true; UserName = "$env:USERNAME@$env:USERDNSDOMAIN"; HostName = "SRV1";  }
