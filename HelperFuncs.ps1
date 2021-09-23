@@ -131,28 +131,29 @@ function Test-HashesWithHashcat{
         $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
         
         # Transfer the hashes to crack
-        Set-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $scratchFile.FullName -Destination "~" -NewName $scratchFile.Name
+        Set-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $scratchFile.FullName -Destination "~" -NewName $scratchFile.Name -AcceptKey -Verbose
 
         $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {5}" -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
+        $result.Output
 
 		# export results
-        $cmd = "{0}hashcat  -m 1000 --show --outfile {1} {2}  " -f $HashcatDir,$outputFile.Name,$scratchFile.Name,$logFile.Name
+        $cmd = "{0}hashcat -m 1000 --show --outfile {1} {2};  ls -l {1}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
-
+        $result.Output
         
         # Retrieve the results
-        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -Force
-        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -Force
+        Remove-Item $outputFile   # clean up existing output file
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -AcceptKey -Verbose
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey -Verbose
  
         # Clean up temp files
         $result = Invoke-SSHCommand -SSHSession $session -Command ("rm {0}*" -f $jobName)
         
         Remove-SSHSession $session | Out-Null
-
     }
     else
     {
@@ -161,7 +162,7 @@ function Test-HashesWithHashcat{
         PUSHD $HashcatDir
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {5}" -f $HashcatDir,$jobName,$scratchFile.FullName,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.FullName
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4}  1>{5} 2>&1" -f $HashcatDir,$jobName,$scratchFile.FullName,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.FullName
         Write-Warning $cmd
         $result = Invoke-Expression -Command $cmd 
 
@@ -177,10 +178,11 @@ function Test-HashesWithHashcat{
 
     $hashcatOutput = Get-Content $logFile.FullName
 
-    Write-Host ("Hashcat processing time: {0:n0} minutes" -f $stopwatch.Elapsed.TotalMinutes)
+    Write-Host ("`nHashcat processing time: {0:n0} minutes" -f $stopwatch.Elapsed.TotalMinutes)
 
     if($ShowOutput)
     {
+        Write-Host "Hashcat output below:`n"
         $hashcatOutput | Write-Host
     }
 

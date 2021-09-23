@@ -82,7 +82,10 @@ cd ${HASHCAT_VER}
 ln -s hashcat.bin hashcat
 
 # grant write perms so that the .pid, .induct and other temp files can be written without sudo
+## make more elegant!!!
 sudo chmod -R 757 /opt/hashcat-6.2.4/
+sudo chmod a+rw /opt/hashcat-6.2.4/hashcat.potfile
+sudo chmod a+rw /opt/hashcat-6.2.4/show.log
 
 
 
