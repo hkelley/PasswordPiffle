@@ -58,6 +58,24 @@ Function Get-ADHashesAsTestSet {
 }
 
 
+$reHex = [regex] '\$HEX\[(?<hexcodes>[\da-f]+)\]'
+
+function Get-StringFromHex ($hexcodes)
+{
+    $outString = ""
+
+    $chars = $hexcodes.ToCharArray()
+
+    for($i=0; $i -lt $chars.count; $i = $i+2 )
+    {
+        $charHex = $chars[$i..($i + 1)] -join "" 
+    
+        $outString += [char] [CONVERT]::toint16($charHex,16) 
+    }
+
+    $outString
+}
+
 function Test-HashesWithHashcat{
     [CmdletBinding()]
     param(
@@ -118,7 +136,7 @@ function Test-HashesWithHashcat{
         $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {1}" -f $HashcatDir,$logFile.Name,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList)    
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {5}" -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
 
 		# export results
@@ -135,24 +153,29 @@ function Test-HashesWithHashcat{
         
         Remove-SSHSession $session | Out-Null
 
-        $hashcatOutput = Get-Content $logFile.FullName
     }
     else
     {
-        # local hashcat   #### NEEDS REVIEW.  MAY BE BROKEN AFTER CHANGES TO ALLOW SSH REMOTING  #####
+        # local hashcat
+
+        PUSHD $HashcatDir
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {1}.log" -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList)    
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 2>&1 1> {5}" -f $HashcatDir,$jobName,$scratchFile.FullName,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.FullName
+        Write-Warning $cmd
+        $result = Invoke-Expression -Command $cmd 
 
-		# export results
-        $cmd = "{0}hashcat  -m 1000 --show --outfile {1} {2}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name
+		# export results to file
+        $cmd = "{0}hashcat  -m 1000 --show --outfile {1} {2}" -f $HashcatDir,$outputFile.FullName,$scratchFile.FullName
+        Write-Warning $cmd
+        $result = Invoke-Expression -Command $cmd 
 
-#        $cmd = "{0}hashcat  -m 1000 -O --session {1}  --potfile-disable --outfile {2} {3} --rules-file {4} {5}" -f $HashcatDir,$jobName,$outputFile.FullName,$scratchFile.FullName,$($HashcatDir + $WordList),$($HashcatDir + $Rules)
-        $cmd = "{0}hashcat  -m 1000 -O --session {1}  --show --outfile {2} {3} --rules-file {4} {5}" -f $HashcatDir,$jobName,$outputFile.FullName,$scratchFile.FullName,$($HashcatDir + $WordList),$($HashcatDir + $Rules)
-        $hashcatOutput = Invoke-Expression -Command $cmd 
+        POPD
     }
 
     $stopwatch.Stop()
+
+    $hashcatOutput = Get-Content $logFile.FullName
 
     Write-Host ("Hashcat processing time: {0:n0} minutes" -f $stopwatch.Elapsed.TotalMinutes)
 
@@ -173,6 +196,12 @@ function Test-HashesWithHashcat{
         foreach($user in $hashesToTest[$crack.hash].Users)
         {
             $TestSet[$user].Condition = "weak"
+
+            if($crack.result -match $reHex)
+            {
+                $crack.result = Get-StringFromHex -hexcodes $Matches.hexcodes
+            }
+
             $TestSet[$user].Context = $crack.result
         }
     }

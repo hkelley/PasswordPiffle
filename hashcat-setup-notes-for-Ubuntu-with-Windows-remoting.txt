@@ -4,8 +4,11 @@ https://arminreiter.com/2020/11/using-azure-vm-to-crack-passwords/
 
 https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
 
-# PSremoting steps adapted from:
-https://adamtheautomator.com/psremoting-linux/
+# PSremoting steps use
+https://github.com/darkoperator/Posh-SSH
+
+
+
 
 lsb_release -a
 
