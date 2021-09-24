@@ -137,12 +137,12 @@ function Test-HashesWithHashcat{
 
 		# crack hashes and add to potfile
         $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
-        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
+        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours) -AcceptKey
         $result.Output
 
 		# export results
-        $cmd = "{0}hashcat -m 1000 --show --outfile {1} {2};  ls -l {1}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name
-        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
+        $cmd = "{0}hashcat -m 1000 --show --outfile {1} {2};  ls -l {1}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name 
+        $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours) -AcceptKey
         $result.Output
         
         # Retrieve the results
