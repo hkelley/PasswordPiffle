@@ -138,12 +138,34 @@ function Test-HashesWithHashcat{
 		# crack hashes and add to potfile
         $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
-        $result.Output
+        if($result.ExitStatus -ne 0)
+        {
+            Write-Warning ("Error raised on remote server by command: {0}" -f $cmd)
+            $result | fl *
+            
+            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey 
+
+            Write-Warning ("Hashcat log below:")
+            Get-Content $logFile.FullName | Write-Host
+
+            throw "HashcatException"
+        }
 
 		# export results
         $cmd = "{0}hashcat -m 1000 --show --outfile {1} {2};  ls -l {1}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name 
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours) 
-        $result.Output
+        if($result.ExitStatus -ne 0)
+        {
+            Write-Warning ("Error raised on remote server by command: {0}" -f $cmd)
+            $result | fl *
+            
+            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey 
+
+            Write-Warning ("Hashcat log below:")
+            Get-Content $logFile.FullName | Write-Host
+
+            throw "HashcatException"
+        }
         
         # Retrieve the results
         Remove-Item $outputFile   # clean up existing output file
