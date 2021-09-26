@@ -83,6 +83,7 @@ function Test-HashesWithHashcat{
         , [Parameter(Mandatory = $false)] [string] $HashcatHost
         , [Parameter(Mandatory = $false)] [pscredential] $HashcatHostCred
         , [Parameter(Mandatory = $true)] [string] $HashcatDir
+        , [Parameter(Mandatory = $false)] [string] $HashcatOptions
         , [Parameter(Mandatory = $true)] [string] $WordList 
         , [Parameter(Mandatory = $true)] [string] $Rules                        
         , [Parameter(Mandatory = $false)] [switch] $ShowOutput
@@ -136,7 +137,7 @@ function Test-HashesWithHashcat{
         $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name
+        $cmd = "{0}hashcat  -m 1000 -O {6} --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name,$HashcatOptions
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
         if((0..1) -notcontains $result.ExitStatus)   # https://github.com/hashcat/hashcat/blob/master/docs/status_codes.txt
         {
