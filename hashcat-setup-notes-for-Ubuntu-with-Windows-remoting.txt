@@ -13,7 +13,25 @@ https://github.com/darkoperator/Posh-SSH
 lsb_release -a
 
 
+## GPU Driver installation
+# GCP
+From:  https://cloud.google.com/compute/docs/gpus/install-drivers-gpu
 
+
+curl https://raw.githubusercontent.com/GoogleCloudPlatform/compute-gpu-installation/main/linux/install_gpu_driver.py --output install_gpu_driver.py
+
+sudo python3 install_gpu_driver.py
+
+The script takes some time to run. It might restart your VM. If the VM restarts, run the script again to continue the installation.
+
+Verify the installation. See Verifying the GPU driver install.
+
+
+# OpenCL
+sudo apt install  intel-opencl-icd
+
+
+# Other platforms
 Check correct urls at: http://developer.download.nvidia.com/compute/cuda/repos/ for
 - cuda-repo-ubuntu****_amd64.deb
 - keys  (exact URL will be provided by this command:
@@ -35,9 +53,13 @@ sudo apt-get install cuda   # HCK
 
 sudo apt-get install cuda-drivers
 sudo apt-get install nvidia-cuda-toolkit
-sudo apt-get install p7zip-full -y
 
 sudo reboot
+
+
+
+
+# Before moving on to hashcat,  make sure GPU(s) are visible
 
 nvidia-smi
 
@@ -63,8 +85,12 @@ Tue Sep 14 14:32:38 2021
 |  No running processes found                                                 |
 +-----------------------------------------------------------------------------+
 
+
+
+
 # Install latest version of Hashcat (check https://hashcat.net/hashcat/ to get latest version number)
 
+sudo apt-get install p7zip-full
 
 cd /opt
 
@@ -73,25 +99,18 @@ sudo wget https://hashcat.net/files/${HASHCAT_VER}.7z
 
 
 sudo 7z x ${HASHCAT_VER}.7z
+sudo chmod -R a+rxw   ${HASHCAT_VER}   # Improve this
 sudo rm ${HASHCAT_VER}.7z
 
 
 cd ${HASHCAT_VER}
 
 # make a link using short name 
-ln -s hashcat.bin hashcat
-
-# grant write perms so that the .pid, .induct and other temp files can be written without sudo
-## make more elegant!!!
-sudo chmod -R 757 /opt/hashcat-6.2.4/
-sudo chmod a+rw /opt/hashcat-6.2.4/hashcat.potfile
-sudo chmod a+rw /opt/hashcat-6.2.4/show.log
-
+sudo ln -s hashcat.bin hashcat
 
 
 # Chec for GPU recognition
 sudo ./hashcat.bin -I
-
 
 hashcat (v6.2.4) starting in backend information mode
 
@@ -131,23 +150,68 @@ OpenCL Platform ID #1
     PCI.Addr.BDF...: 00:00.0
 
 
+# benchmark on NTLM
+
+
+
+
+# grant write perms so that the .pid, .induct and other temp files can be written without sudo   (assuming we have stopped with the a+rxw perms from above)
+## make more elegant!!!     
+sudo chmod -R 757 /opt/hashcat-6.2.4/
+sudo touch hashcat.potfile
+sudo chmod a+rw hashcat.potfile
+sudo touch show.log
+sudo chmod a+rw show.log
+sudo touch benchmark.pid
+sudo chmod a+rwx benchmark.pid
 
 
 mkdir wordlists
 cd wordlists
+wget http://thehackerplaybook.com/get.php?type=THP-password -O list
+7z x list
+rm list
+cd ..
 
 
-sudo wget http://thehackerplaybook.com/get.php?type=THP-password
-sudo 7z x 
-rm get
-
-cd ../rules
-sudo wget https://raw.githubusercontent.com/NotSoSecure/password_cracking_rules/master/OneRuleToRuleThemAll.rule
+mkdir rules
+cd rules
+wget https://raw.githubusercontent.com/NotSoSecure/password_cracking_rules/master/OneRuleToRuleThemAll.rule
+cd ..
 
 
-# Finicky syntax
-sudo ./hashcat.bin  -m 1000 -O --outfile x.txt --potfile-disable  -r rules/OneRuleToRuleThemAll.rule hash-to-crack.txt   wordlists/40GB_CleanUpFile.txt
 
+
+# Drop a file with a test hash at x.txt
+vi  ~/in.txt
+
+
+./hashcat  -m 1000 -O --outfile ~/out.txt   -r rules/OneRuleToRuleThemAll.rule   ~/in.txt   wordlists/40GB_CleanUpFile.txt
+
+
+# in another SSH session, check performance/usage of the GPU
+nvidia-smi
+
+Thu Nov  4 14:17:07 2021
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 495.29.05    Driver Version: 495.29.05    CUDA Version: 11.5     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla P100-PCIE...  On   | 00000000:00:04.0 Off |                    0 |
+| N/A   73C    P0   160W / 250W |   5899MiB / 16280MiB |     97%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|    0   N/A  N/A     34753      C   ./hashcat                        5897MiB |
++-----------------------------------------------------------------------------+
 
 
 
