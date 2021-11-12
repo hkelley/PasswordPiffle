@@ -128,13 +128,15 @@ function Test-HashesWithHashcat{
     if(![string]::IsNullOrWhiteSpace($HashcatHost) -and $HashcatHostCred -ne $null)
     {   
         # remote hashcat (e.g.,  Linux host with GPU)
+        $timeoutOptions = @{
+            ConnectionTimeout = 30
+            OperationTimeout = 30        
+        }
 
-        $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred  -AcceptKey
+        $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred  -AcceptKey @timeoutOptions
         
         # Transfer the hashes to crack
-        Set-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $scratchFile.FullName -Destination "~" -NewName $scratchFile.Name -AcceptKey -Verbose
-
-        $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred
+        Set-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $scratchFile.FullName -Destination "~" -NewName $scratchFile.Name -AcceptKey -Verbose   @timeoutOptions
 
 		# crack hashes and add to potfile
         $cmd = "{0}hashcat  -m 1000 -O {6} --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name,$HashcatOptions
@@ -144,7 +146,7 @@ function Test-HashesWithHashcat{
             Write-Warning ("Error raised on remote server by command: {0}" -f $cmd)
             $result | fl *
             
-            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey 
+            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey  @timeoutOptions
 
             Write-Warning ("Hashcat log below:")
             Get-Content $logFile.FullName | Write-Host
@@ -160,7 +162,7 @@ function Test-HashesWithHashcat{
             Write-Warning ("Error raised on remote server by command: {0}" -f $cmd)
             $result | fl *
             
-            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey 
+            Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey  @timeoutOptions
 
             Write-Warning ("Hashcat log below:")
             Get-Content $logFile.FullName | Write-Host
@@ -170,8 +172,8 @@ function Test-HashesWithHashcat{
         
         # Retrieve the results.   Default operation timeout is 5s so bump it up a bit
         Remove-Item $outputFile   # clean up existing output file
-        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -ConnectionTimeout 30 -OperationTimeout 30  -AcceptKey -Verbose
-        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey -Verbose
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName  -AcceptKey -Verbose  @timeoutOptions
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey -Verbose  @timeoutOptions
  
         # Clean up temp files
         $result = Invoke-SSHCommand -SSHSession $session -Command ("rm {0}*" -f $jobName)
