@@ -168,9 +168,9 @@ function Test-HashesWithHashcat{
             throw "HashcatException"
         }
         
-        # Retrieve the results
+        # Retrieve the results.   Default operation timeout is 5s so bump it up a bit
         Remove-Item $outputFile   # clean up existing output file
-        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -AcceptKey -Verbose
+        Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName -ConnectionTimeout 30 -OperationTimeout 30  -AcceptKey -Verbose
         Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey -Verbose
  
         # Clean up temp files
