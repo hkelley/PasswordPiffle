@@ -187,7 +187,7 @@ function Test-HashesWithHashcat{
         PUSHD $HashcatDir
 
 		# crack hashes and add to potfile
-        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4}  1>{5} 2>&1" -f $HashcatDir,$jobName,$scratchFile.FullName,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.FullName
+        $cmd = "{0}hashcat  -m 1000 -O --session {1} {2} --rules-file {3} {4}  1>{5} 2>&1" -f $HashcatDir,$jobName,$scratchFile.FullName,$($Rules),$($WordList),$logFile.FullName
         Write-Warning $cmd
         $result = Invoke-Expression -Command $cmd 
 
