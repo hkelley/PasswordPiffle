@@ -26,12 +26,20 @@ Function Get-ADHashesAsTestSet {
     param(
           [Parameter(Mandatory)] [ScriptBlock] $Filter
         , [Parameter(Mandatory)] [string] $DC
+        , [Parameter(Mandatory=$false)] [pscredential]  $Credential = [System.Management.Automation.PSCredential]::Empty
     )
+    
+    $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+    
+    $credsplat = @{}
+    if ($Credential -ne [System.Management.Automation.PSCredential]::Empty) {
+        $credsplat['Credential'] = $Credential
+    }
 
-    $rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE",$null,$null,[System.DirectoryServices.AuthenticationTypes]::Anonymous) -ErrorAction Stop
-    $NBName = (Get-ADDomain -Server $DC).NetBIOSName
+    # $rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DC/rootdse",$null,$null,[System.DirectoryServices.AuthenticationTypes]::Anonymous) -ErrorAction Stop 
+    $NBName = (Get-ADDomain -Server $DC   @credsplat).NetBIOSName
 
-    if(!($users = @(Get-ADUser -Server $DC -Filter $filter -Properties PasswordLastSet)))
+    if(!($users = @(Get-ADUser -Server $DC -Filter $filter -Properties PasswordLastSet   @credsplat)))
     {    
         Write-Warning "No users matched filter"
     }
@@ -44,7 +52,13 @@ Function Get-ADHashesAsTestSet {
     $retrievedUsers = @{}
     foreach($u in $users)
     {
-        $repl = Get-ADReplAccount  -Server $DC  -SamAccountName $u.SamAccountName  -Domain $NBName
+        $repl = Get-ADReplAccount  -Server $DC  -SamAccountName $u.SamAccountName  -Domain $NBName  @credsplat
+
+        if(!($repl.NTHash))
+        {
+            Write-Warning ("NTHash of {0} is null" -f $u.SamAccountName)
+            continue
+        }
 
         $retrievedUsers[$u.samaccountname] = [pscustomobject] @{
             Replica = $repl
@@ -129,8 +143,8 @@ function Test-HashesWithHashcat{
     {   
         # remote hashcat (e.g.,  Linux host with GPU)
         $timeoutOptions = @{
-            ConnectionTimeout = 30
-            OperationTimeout = 30        
+            ConnectionTimeout = 60
+            OperationTimeout = 60        
         }
 
         $session = New-SSHSession -ComputerName $HashcatHost -Credential $HashcatHostCred  -AcceptKey @timeoutOptions
@@ -310,7 +324,10 @@ function Test-HashesForPasswordSharing {
           [Parameter(Mandatory)] $TestSet   # from Get-ADHashes - logic below assumes both the user and the user's manager are in this replica.  Don't use this function if you are only analyzing recent password changes.
         , [Parameter(Mandatory)] $DC
     )
-    
+
+    $hashIndex = @{}
+    $conditionPrefix = "shared"
+
     foreach($t in $TestSet.Values)
     {
         $userHash =   Format-NTHash -NTHash $t.Replica.NTHash
@@ -321,6 +338,7 @@ function Test-HashesForPasswordSharing {
         if($adUser -eq $null -or $aduser.Enabled -ne $true)
         {    continue      }
 
+        # Check for manager re-use
         if($aduser.Manager -gt "" -and $aduser.Manager -ne $aduser.DistinguishedName -and ($adManager = Get-ADUser -Server $DC $aduser.Manager -Properties displayName,mail) -and $TestSet.ContainsKey($adManager.SamAccountName))
         {
             $managerHash =  Format-NTHash -NTHash $TestSet[$adManager.SamAccountName].Replica.NTHash
@@ -328,8 +346,31 @@ function Test-HashesForPasswordSharing {
             if($userHash -eq $managerHash)
             {
                 # mark as bad
-                $t.Condition = "shared"
+                $t.Condition = "$conditionPrefix-manager"
                 $t.Context =  "{0} <{1}>" -f $adManager.displayName,$adManager.mail
+            }
+        }
+
+        # build the hashtable for global de-dup in the next stage
+        if($hashIndex[$userHash])
+        {
+            $hashIndex[$userHash] += $t
+        }
+        else
+        {
+            $hashIndex[$userHash] = @($t)
+        }
+    }
+
+    # Global hash sharing detection
+    foreach($set in $hashIndex.Values)
+    {
+        if($set.Count -ge 2)
+        {
+            # Loop over users that don't already have a detection
+            foreach($t in $set | ?{-not $_.Condition})
+            {
+                $t.Condition = "$conditionPrefix-global"
             }
         }
     }

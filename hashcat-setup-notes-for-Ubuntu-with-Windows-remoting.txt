@@ -157,9 +157,9 @@ OpenCL Platform ID #1
 
 # grant write perms so that the .pid, .induct and other temp files can be written without sudo   (assuming we have stopped with the a+rxw perms from above)
 ## make more elegant!!!     
-sudo chmod -R 757 /opt/hashcat-6.2.4/
-sudo touch hashcat.potfile
-sudo chmod a+rw hashcat.potfile
+#sudo chmod -R 757 /opt/${HASHCAT_VER}/
+sudo chmod -R a+r /opt/${HASHCAT_VER}/
+
 sudo touch show.log
 sudo chmod a+rw show.log
 sudo touch benchmark.pid
@@ -214,8 +214,22 @@ Thu Nov  4 14:17:07 2021
 +-----------------------------------------------------------------------------+
 
 
+# When the test run completes (and the potfile and other temp files have been created)  grant access to non-admin users.
+ls /opt/${HASHCAT_VER}/hashcat.*
 
-# Remoting setup
+sudo chmod a+rx /opt/${HASHCAT_VER}/kernels/*
+
+sudo chmod a+rw /opt/${HASHCAT_VER}/hashcat.log
+sudo chmod a+rw /opt/${HASHCAT_VER}/hashcat.potfile
+sudo chmod a+rw /opt/${HASHCAT_VER}/hashcat.dictstat2
+
+
+
+
+
+
+
+# Remoting setup - ON WINDOWS JOB HOST
 
 # On Windows client
 # Install OpenSSH
