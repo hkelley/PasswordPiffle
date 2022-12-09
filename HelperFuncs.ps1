@@ -8,7 +8,7 @@
 # - The “DS-Replication-Get-Changes” extended right
 #   CN: DS-Replication-Get-Changes
 #   GUID: 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
-# - The “Replicating Directory Changes All” extended right
+# - The “Replicating Directory Changes All” extended right   (this is necessary to get the hashes)
 #   CN: DS-Replication-Get-Changes-All
 #   GUID: 1131f6ad-9c07-11d1-f79f-00c04fc2dcd2
 
