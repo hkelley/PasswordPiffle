@@ -18,6 +18,11 @@ Function Format-NTHash {
         [Parameter(Mandatory)] $NTHash
     )
 
+    if([string]::IsNullOrEmpty($NTHash))
+    {
+        return $null
+    }
+
     return [System.BitConverter]::ToString($NTHash).Replace("-","")
 }
 
@@ -273,7 +278,57 @@ function Test-HashesAgainstList {
     }    
 }
 
+function Test-HashesAgainstPwndPasswords
+{
+    [CmdletBinding()]
+    param(
+          [Parameter(Mandatory)] $TestSet   # from Get-ADHashes
+    )
 
+    $hashCache = @{}
+
+    # Get only the values we haven't already marked
+    $testSubset = $TestSet.Values.GetEnumerator() | ?{$null -eq $_.Condition } 
+    
+    foreach($user in $testSubset)
+    {
+        [string] $hash = Format-NTHash -NTHash $user.Replica.NTHash
+
+        if($hashCache[$hash] -eq $true)
+        {
+            $user.Condition = "leaked"
+            $user.Context = "api.pwnedpasswords.com"
+        }
+        elseif ($hashCache[$hash] -eq $false)
+        {
+            # Hash has already been checked and was not matched
+            continue
+        }
+        else 
+        {
+            $hashRange = $hash.Substring(0,5)
+            $hashRemainder = $hash.Substring(5,$hash.Length - 5)
+
+            $url = "https://api.pwnedpasswords.com/range/{0}?mode=ntlm" -f $hashRange
+            if($rangeMatches = Invoke-RestMethod -Uri $url)
+            {
+                # find a match for our remainder
+                $rangeMatches = $rangeMatches -split '\r\n'
+                if($rangeMatches | ?{$_ -like "${hashRemainder}:*" })
+                {
+                    $hashCache[$hash] = $true
+                    $user.Condition = "leaked"
+                    $user.Context = "api.pwnedpasswords.com"
+                }
+                else 
+                {
+                    $hashCache[$hash] = $false                    
+                }
+            }
+        }
+    }
+
+}
 
 function Test-HashesForPasswordReuse {
     [CmdletBinding()]

@@ -15,7 +15,9 @@ Test-HashesWithHashcat -TestSet $testset -ShowOutput               -HashcatDir "
 
 
 ## Second, check for the presence on a banned list
-Test-HashesAgainstList -TestSet $testset -BadHashesSortedFile E:\Utils\haveibeenpwned.com\pwned-passwords-ntlm-ordered-by-hash-v7.txt
+#Test-HashesAgainstList -TestSet $testset -BadHashesSortedFile E:\Utils\haveibeenpwned.com\pwned-passwords-ntlm-ordered-by-hash-v7.txt
+# or new method
+Test-HashesAgainstPwndPasswords -TestSet $testset
 
 ## Third,  look for accounts that re-use the same password between manager and report  (lazy IT people who use same password for admin ID)
 Test-HashesForPasswordSharing $testset
