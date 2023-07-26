@@ -14,6 +14,8 @@ Test-HashesWithHashcat -TestSet $testset -ShowOutput  -HashcatDir "E:\Utils\Hash
 Test-HashesWithHashcat -TestSet $testset -ShowOutput -HashcatHost $HashcatHost -HashcatHostCred $HashcatCred  -HashcatDir "/opt/hashcat-6.2.4/" -WordList "wordlists/40GB_CleanUpFile.txt" -Rules "rules/OneRuleToRuleThemAll.rule" 
 
 # MODE CrackQ:
+git clone https://github.com/hkelley/PsCrackQ
+Import-Module .\PsCrackQ
 Test-HashesWithHashcat -TestSet $testset -ShowOutput -HashcatHost $HashcatHost -HashcatHostCred $HashcatCred  -CrackQTemplateName "rockyou2021 with onerule"
 
 ## Second, check for the presence on a banned list
