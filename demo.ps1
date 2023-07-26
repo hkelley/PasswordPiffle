@@ -5,14 +5,16 @@
 $filter = {enabled -eq $true -and objectcategory -eq "person"}
 $testset = Get-ADHashesAsTestSet -Filter $filter
 
-## First, try to crack, this way we can see the weak values
+## First, try to crack.
 
-# MODE A:  Using a remote (Linux) server over SSH.  This allows you more flexibility with cloud-provided GPUs
+# MODE Local:  Local hashcat on Windows
+Test-HashesWithHashcat -TestSet $testset -ShowOutput  -HashcatDir "E:\Utils\Hashcat\" -WordList "wordlists\40GB_CleanUpFile.txt" -Rules "rules\best64.rule" 
+
+# MODE SSH:  Using a remote (Linux) server over SSH.  This allows you more flexibility with cloud-provided GPUs
 Test-HashesWithHashcat -TestSet $testset -ShowOutput -HashcatHost $HashcatHost -HashcatHostCred $HashcatCred  -HashcatDir "/opt/hashcat-6.2.4/" -WordList "wordlists/40GB_CleanUpFile.txt" -Rules "rules/OneRuleToRuleThemAll.rule" 
 
-# MODE B:  Local hashcat on Windows
-Test-HashesWithHashcat -TestSet $testset -ShowOutput               -HashcatDir "E:\Utils\Hashcat\" -WordList "wordlists\40GB_CleanUpFile.txt" -Rules "rules\best64.rule" 
-
+# MODE CrackQ:
+Test-HashesWithHashcat -TestSet $testset -ShowOutput -HashcatHost $HashcatHost -HashcatHostCred $HashcatCred  -CrackQTemplateName "rockyou2021 with onerule"
 
 ## Second, check for the presence on a banned list
 #Test-HashesAgainstList -TestSet $testset -BadHashesSortedFile E:\Utils\haveibeenpwned.com\pwned-passwords-ntlm-ordered-by-hash-v7.txt

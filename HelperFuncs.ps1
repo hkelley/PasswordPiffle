@@ -96,17 +96,18 @@ function Get-StringFromHex ($hexcodes)
 }
 
 function Test-HashesWithHashcat{
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Local')]
     param(
           [Parameter(Mandatory = $true)] $TestSet   # from Get-ADHashes
-        , [Parameter(Mandatory = $false)] [string] $HashcatHost
-        , [Parameter(Mandatory = $false)] [pscredential] $HashcatHostCred
-        , [Parameter(Mandatory = $true)] [string] $HashcatDir
-        , [Parameter(Mandatory = $false)] [string] $HashcatOptions
-        , [Parameter(Mandatory = $true)] [string] $WordList 
-        , [Parameter(Mandatory = $true)] [string] $Rules                        
+        , [Parameter(Mandatory = $true, ParameterSetName = 'SSH')] [Parameter(Mandatory = $true, ParameterSetName = 'CrackQ')] [string] $HashcatHost
+        , [Parameter(Mandatory = $true, ParameterSetName = 'SSH')] [Parameter(Mandatory = $true, ParameterSetName = 'CrackQ')] [pscredential] $HashcatHostCred
+        , [Parameter(Mandatory = $true, ParameterSetName = 'SSH')] [Parameter(Mandatory = $true, ParameterSetName = 'Local')] [string] $HashcatDir
+        , [Parameter(Mandatory = $true, ParameterSetName = 'CrackQ')] [string] $CrackQTemplateName
+        , [Parameter(Mandatory = $true, ParameterSetName = 'SSH')] [Parameter(Mandatory = $true, ParameterSetName = 'Local')] [string] $WordList 
+        , [Parameter(Mandatory = $true, ParameterSetName = 'SSH')] [Parameter(Mandatory = $true, ParameterSetName = 'Local')] [string] $Rules
+        , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [string] $HashcatOptions
+        , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [int] $TimeoutHours = 6
         , [Parameter(Mandatory = $false)] [switch] $ShowOutput
-        , [Parameter(Mandatory = $false)] [int] $TimeoutHours = 6
     )
 
     # build a hashtable of username keyed by password hashes 
@@ -131,7 +132,11 @@ function Test-HashesWithHashcat{
         }
     }
 
+    $stopwatch =  [System.Diagnostics.Stopwatch]::StartNew()
     $jobName = "hcu-{0}" -f (Get-Random -Minimum 1000 -Maximum 9999)
+    Write-Warning ("Running hashcat via {0} using job ID {1}" -f $PSCmdlet.ParameterSetName,$jobName)
+
+    # Prepare some files 
     $scratchFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.input" -f $jobName))
     $outputFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.output" -f  $jobName))
     $logFile = [IO.FileInfo] [IO.Path]::Combine( $env:TMP, ("{0}.log" -f  $jobName))
@@ -140,13 +145,8 @@ function Test-HashesWithHashcat{
     $hashesToTest.Keys | Out-File -Encoding ascii -FilePath $scratchFile
     $null | Out-File -Encoding ascii -FilePath $outputFile
 
-    $hashcatOutput = "NO HASHCAT OUTPUT"
-
-    $stopwatch =  [system.diagnostics.stopwatch]::StartNew()
-
-    if(![string]::IsNullOrWhiteSpace($HashcatHost) -and $HashcatHostCred -ne $null)
+    if($PSCmdlet.ParameterSetName -eq  'SSH')
     {   
-        # remote hashcat (e.g.,  Linux host with GPU)
         $timeoutOptions = @{
             ConnectionTimeout = 60
             OperationTimeout = 60        
@@ -159,6 +159,7 @@ function Test-HashesWithHashcat{
 
 		# crack hashes and add to potfile
         $cmd = "{0}hashcat  -m 1000 -O {6} --session {1} {2} --rules-file {3} {4} 1>{5}  2>&1 " -f $HashcatDir,$jobName,$scratchFile.Name,$($HashcatDir + $Rules),$($HashcatDir + $WordList),$logFile.Name,$HashcatOptions
+        Write-Host "Running `r`n$cmd"
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours)
         if((0..1) -notcontains $result.ExitStatus)   # https://github.com/hashcat/hashcat/blob/master/docs/status_codes.txt
         {
@@ -175,6 +176,7 @@ function Test-HashesWithHashcat{
 
 		# export results
         $cmd = "{0}hashcat -m 1000 --show --outfile {1} {2};  ls -l {1}" -f $HashcatDir,$outputFile.Name,$scratchFile.Name 
+        Write-Host "Running `r`n$cmd"
         $result = Invoke-SSHCommand -SSHSession $session -Command $cmd  -TimeOut (60*60*$TimeoutHours) 
         if((0..1) -notcontains $result.ExitStatus)   # https://github.com/hashcat/hashcat/blob/master/docs/status_codes.txt
         {
@@ -194,15 +196,26 @@ function Test-HashesWithHashcat{
         Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $outputFile.Name -PathType File -Destination $outputFile.Directory.FullName  -AcceptKey -Verbose  @timeoutOptions
         Get-SCPItem -ComputerName $HashcatHost -Credential $HashcatHostCred -Path $logFile.Name -PathType File -Destination $logFile.Directory.FullName -AcceptKey -Verbose  @timeoutOptions
  
-        # Clean up temp files
+        # Clean up temp files on hashcat host
         $result = Invoke-SSHCommand -SSHSession $session -Command ("rm {0}*" -f $jobName)
         
         Remove-SSHSession $session | Out-Null
     }
-    else
+    elseif ($PSCmdlet.ParameterSetName -eq 'CrackQ')
     {
-        # local hashcat
+        Connect-CrackQ  -CrackQUrl https://$HashcatHost  -Credential $HashcatHostCred
 
+        $template =  Get-CrackQTemplate -TemplateName $CrackQTemplateName 
+
+        $crackjob = Invoke-CrackQTask -Hashes (Get-Content $scratchFile) -Template $template -JobRef $jobName
+
+        $crackjob.Cracked | Out-File $outputFile
+        $crackjob | ConvertTo-Json -Depth 8 | Out-File $logFile
+
+        Disconnect-CrackQ
+    }
+    else # local hashcat
+    {
         PUSHD $HashcatDir
 
 		# crack hashes and add to potfile
@@ -220,18 +233,19 @@ function Test-HashesWithHashcat{
 
     $stopwatch.Stop()
 
-    $hashcatOutput = Get-Content $logFile.FullName
-
-    Write-Host ("`nHashcat processing time: {0:n0} minutes" -f $stopwatch.Elapsed.TotalMinutes)
+    $hashcatConsoleMessages = Get-Content $logFile.FullName
+    $hashcatOutfileRows = (Import-Csv $outputFile -Delimiter ":" -Header "hash","result")
 
     if($ShowOutput)
     {
-        Write-Host "Hashcat output below:`n"
-        $hashcatOutput | Write-Host
+        Write-Host "Hashcat console output below:`n"
+        $hashcatConsoleMessages | Write-Host
     }
 
+    Write-Host ("`nHashcat processing time: {0:n0} minutes.  Outfile contains {1} rows." -f $stopwatch.Elapsed.TotalMinutes,$hashcatOutfileRows.Count)
+
     # hashcat-ing complete,  import the cracked results
-    foreach($crack in (Import-Csv $outputFile -Delimiter ":" -Header "hash","result"))
+    foreach($crack in $hashcatOutfileRows)
     {
         if(-not $hashesToTest[$crack.hash])
         {
