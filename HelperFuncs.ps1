@@ -108,7 +108,7 @@ function Test-HashesWithHashcat{
         , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [string] $HashcatOptions
         , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [int] $TimeoutHours = 6
         , [Parameter(Mandatory = $false)] [switch] $ShowOutput
-        , [Parameter(Mandatory = $false)] [string] $jobName
+        , [Parameter(Mandatory = $false)] [string] $JobName
     )
 
     if([string]::IsNullOrWhiteSpace($jobName))
