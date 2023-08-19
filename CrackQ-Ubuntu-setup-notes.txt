@@ -1,0 +1,129 @@
+# Setup notes from CentOS deployment of CrackQ on Google Cloud Ubuntu host with Nvidia T4 GPUs - August 2023
+
+
+# Install GPU drivers and verify "hardware"
+
+## GPU Driver installation for Nvidia T4
+
+https://cloud.google.com/compute/docs/gpus/install-drivers-gpu#installation_scripts
+
+
+mkdir setup-stuff
+cd setup-stuff/
+curl https://raw.githubusercontent.com/GoogleCloudPlatform/compute-gpu-installation/main/linux/install_gpu_driver.py --output install_gpu_driver.py
+sudo python3 install_gpu_driver.py
+# script might restart your VM (did not for me). If the VM restarts, run the script again to continue the installation.
+
+# verify the GPUs are recognized
+nvidia-smi
+
+# install Google's GPU-aware ops agent
+
+
+
+#  CrackQ install 
+cd  /etc
+sudo git clone https://github.com/f0cker/crackq.git
+cd crackq
+
+
+
+
+# From https://github.com/f0cker/crackq/wiki/Install-on-Ubuntu
+# Install Docker CE
+
+sudo apt-get install \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    software-properties-common
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository \
+   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+   $(lsb_release -cs) \
+   stable"
+sudo apt-get update
+sudo apt-get install docker-ce
+
+
+
+# Ubuntu Nvidia Runtime Install.   The Nvidia Runtime container toolkit is required to pass the GPUs through to the Docker containers.
+
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+sudo apt-get install nvidia-container-runtime
+
+add the following to your /etc/docker/daemon.json file:
+
+{
+    "runtimes": {
+        "nvidia": {
+            "path": "/usr/bin/nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    }
+}
+
+
+# Run the installation script.   This will build out some stuff (including the folders under /var/crackq)
+sudo ./install.sh docker/nvidia/ubuntu
+
+
+# Personal preferences for setup.   Feel free to deviate here.
+
+# get the UUID of the partition
+sudo blkid
+
+sudo mkdir /var/crackq/files/wordlists
+sudo mount /dev/sdb1  /var/crackq/files/wordlists  
+# to make permanent:  
+sudo vi /etc/fstab 
+
+# example
+# [Device]          [Mount Point]                [File System Type] [Options] [Dump] [Pass]
+# UUID=xxx.yyy.zzz  /var/crackq/files/wordlists   auto              defaults    0       2
+
+# app setup
+# Copy the generic app config into the dest,  generate a new key, and edit.
+sudo cp ./crackq.conf /var/crackq/files/
+python3 -c 'import secrets; print(secrets.token_urlsafe())'
+sudo vi /var/crackq/files/crackq.conf
+
+sudo chown crackq:crackq /var/crackq/files/crackq.conf
+sudo chmod 640 /var/crackq/files/crackq.conf
+
+
+# Copy the generic ngingx
+sudo cp ./cfg/crackq_nginx.conf /var/crackq/files/nginx/conf.d    ??????
+
+# create key and CSR
+cd /var/crackq/files/nginx/conf.d/
+sudo openssl req -newkey rsa:2048 -nodes -keyout <NAME>.key -out <name>.csr 
+
+# ls -l
+-rw-r--r--. 1 root   root   5706 Jul 14 14:52 certificate.pem
+-rw-r--r--. 1 root   root   1033 Jul 14 14:41 crackq-cert.csr
+-rw-r--r--. 1 crackq crackq 2121 Jul 12 21:37 crackq_nginx.conf
+-rw-------. 1 root   root   1704 Jul 14 14:40 private.pem
+
+# set the server_name
+sudo vi /var/crackq/files/nginx/conf.d./crackq_nginx.conf
+
+# CD into the crackq install folder  (where you cloned the git repo,  not the /var/crackq)
+
+# start interactively once - verify the page loads in a browser and create a SQL-auth user if needed
+sudo docker compose -f docker-compose.nvidia.yml up 
+
+sudo docker exec -it crackq /usr/bin/python3 /opt/crackq/build/crackq/add_admuser.py
+
+# then start as daemon
+sudo docker compose -f docker-compose.nvidia.yml up -d
+
+
+# Log in and run a benchmark to verify the GPUs

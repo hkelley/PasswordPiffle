@@ -108,7 +108,13 @@ function Test-HashesWithHashcat{
         , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [string] $HashcatOptions
         , [Parameter(Mandatory = $false, ParameterSetName = 'SSH')] [Parameter(Mandatory = $false, ParameterSetName = 'Local')] [int] $TimeoutHours = 6
         , [Parameter(Mandatory = $false)] [switch] $ShowOutput
+        , [Parameter(Mandatory = $false)] [string] $jobName
     )
+
+    if([string]::IsNullOrWhiteSpace($jobName))
+    {
+         $jobName = "hcu-{0}" -f (Get-Random -Minimum 1000 -Maximum 9999)
+    }
 
     # build a hashtable of username keyed by password hashes 
     $hashesToTest = @{}
@@ -133,7 +139,6 @@ function Test-HashesWithHashcat{
     }
 
     $stopwatch =  [System.Diagnostics.Stopwatch]::StartNew()
-    $jobName = "hcu-{0}" -f (Get-Random -Minimum 1000 -Maximum 9999)
     Write-Warning ("Running hashcat via {0} using job ID {1}" -f $PSCmdlet.ParameterSetName,$jobName)
 
     # Prepare some files 
