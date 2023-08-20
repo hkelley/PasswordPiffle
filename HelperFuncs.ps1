@@ -346,7 +346,6 @@ function Test-HashesAgainstPwndPasswords
             }
         }
     }
-
 }
 
 function Test-HashesForPasswordReuse {
@@ -366,7 +365,6 @@ function Test-HashesForPasswordReuse {
 
         $userHash =   Format-NTHash -NTHash $t.Replica.NTHash
 
-
         ## Test for password-re-use across time (same account).  Skip the urrent and most-recent previous password, look for more chronic offenders
         $reuseCount = 0
         foreach($i in 2..($Lookback))
@@ -385,9 +383,9 @@ function Test-HashesForPasswordReuse {
 
         if($reuseCount -ge $MaxUsage)
         {
-                # mark as bad
-                $t.Condition = "re-use"
-                $t.Context =  "{0}:{1}" -f $reuseCount,$Lookback
+            # mark as bad
+            $t.Condition = "re-use"
+            $t.Context =  "{0}:{1}" -f $reuseCount,$Lookback
         }
     }
 }
