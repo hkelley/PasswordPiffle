@@ -1,5 +1,4 @@
-# Setup notes from CentOS deployment of CrackQ on Google Cloud Ubuntu host with Nvidia T4 GPUs - August 2023
-
+# Setup notes from deployment of CrackQ on Google Cloud Ubuntu host with Nvidia T4 GPUs - August 2023
 
 # Install GPU drivers and verify "hardware"
 
@@ -14,19 +13,16 @@ curl https://raw.githubusercontent.com/GoogleCloudPlatform/compute-gpu-installat
 sudo python3 install_gpu_driver.py
 # script might restart your VM (did not for me). If the VM restarts, run the script again to continue the installation.
 
-# verify the GPUs are recognized
+# verify the GPUs are recognized at the host level
 nvidia-smi
 
 # install Google's GPU-aware ops agent
-
 
 
 #  CrackQ install 
 cd  /etc
 sudo git clone https://github.com/f0cker/crackq.git
 cd crackq
-
-
 
 
 # From https://github.com/f0cker/crackq/wiki/Install-on-Ubuntu
@@ -115,15 +111,24 @@ sudo openssl req -newkey rsa:2048 -nodes -keyout <NAME>.key -out <name>.csr
 # set the server_name
 sudo vi /var/crackq/files/nginx/conf.d./crackq_nginx.conf
 
+# Per NOTICE: Containers losing access to GPUs with error: "Failed to initialize NVML: Unknown Error"     # https://github.com/NVIDIA/nvidia-docker/issues/1730
+sudo nvidia-ctk system create-dev-char-symlinks  --create-all
+
 # CD into the crackq install folder  (where you cloned the git repo,  not the /var/crackq)
 
-# start interactively once - verify the page loads in a browser and create a SQL-auth user if needed
+# start interactively once - verify the page loads in a browser (can't log in yet)
 sudo docker compose -f docker-compose.nvidia.yml up 
-
-sudo docker exec -it crackq /usr/bin/python3 /opt/crackq/build/crackq/add_admuser.py
-
-# then start as daemon
+# start containers as daemon
 sudo docker compose -f docker-compose.nvidia.yml up -d
 
+
+# check that hashcat can access the GPUs
+sudo docker exec -it crackq hashcat -I
+
+# if hashcat doesn't see the GPUs,  try editing the crackq container def to use devel flavor of NVIDIA image
+# see https://github.com/f0cker/crackq/issues/40
+
+# create a SQL-auth user
+sudo docker exec -it crackq /usr/bin/python3 /opt/crackq/build/crackq/add_admuser.py
 
 # Log in and run a benchmark to verify the GPUs
