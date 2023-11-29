@@ -3,9 +3,7 @@
 # Install GPU drivers and verify "hardware"
 
 ## GPU Driver installation for Nvidia T4
-
 https://cloud.google.com/compute/docs/gpus/install-drivers-gpu#installation_scripts
-
 
 mkdir setup-stuff
 cd setup-stuff/
@@ -128,7 +126,7 @@ sudo docker exec -it crackq hashcat -I
 # if hashcat doesn't see the GPUs,  try editing the crackq container def to use devel flavor of NVIDIA image
 # see https://github.com/f0cker/crackq/issues/40
 
-# create a SQL-auth user
+# create a SQL-auth user for UI access
 sudo docker exec -it crackq /usr/bin/python3 /opt/crackq/build/crackq/add_admuser.py
 
 # Log in and run a benchmark to verify the GPUs
