@@ -5,6 +5,12 @@
 ## GPU Driver installation for Nvidia T4
 https://cloud.google.com/compute/docs/gpus/install-drivers-gpu#installation_scripts
 
+# Unlikely, but if you already have the Ops Agent collecting GPU metrics on your VM, you must stop the agent before you can install or upgrade your GPU drivers using this installation script.
+# After you have completed the installation or upgrade of the GPU driver, you must then reboot the VM.
+
+sudo systemctl stop google-cloud-ops-agent
+
+# Install via script
 mkdir setup-stuff
 cd setup-stuff/
 curl https://raw.githubusercontent.com/GoogleCloudPlatform/compute-gpu-installation/main/linux/install_gpu_driver.py --output install_gpu_driver.py
@@ -12,7 +18,13 @@ sudo python3 install_gpu_driver.py
 # script might restart your VM (did not for me). If the VM restarts, run the script again to continue the installation.
 
 # verify the GPUs are recognized at the host level
-nvidia-smi
+sudo nvidia-smi
+
+# if this command fails, verify that GPUs are attached to the VM (
+sudo lspci | grep -i "nvidia"
+
+# if the GPUs are present,  check for kernel/driver mismatch
+
 
 # install Google's GPU-aware ops agent
 
